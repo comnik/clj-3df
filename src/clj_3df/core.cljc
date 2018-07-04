@@ -115,7 +115,7 @@
     {:Transact {:tx_data tx-data}}))
 
 (defn transact! [conn db tx-data]
-  (->> (transact tx-data) (json/generate-string) (stream/put! conn)))
+  (->> (transact db tx-data) (json/generate-string) (stream/put! conn)))
 
 (comment
   (def conn @(http/websocket-client "ws://127.0.0.1:6262"))

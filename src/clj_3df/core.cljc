@@ -22,6 +22,16 @@
   #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop]]
                             [clj-3df.core :refer [exec!]])))
 
+;; HELPER
+
+(defn parse-json [json]
+  #?(:clj  (json/parse-string json)
+     :cljs (js->clj (.parse js/JSON json))))
+
+(defn stringify [obj]
+  #?(:clj (cheshire.core/generate-string obj)
+     :cljs (.stringify js/JSON (clj->js obj))))
+
 (defprotocol IDB
   (-schema [db])
   (-attrs-by [db property])
@@ -140,39 +150,71 @@
 
 (defrecord Connection [ws out subscriber])
 
-(defn create-conn [url]
-  (let [ws           @(http/websocket-client url)
-        out          (bus/event-bus)
-        unwrap-type  (fn [boxed] (second (first boxed)))
-        unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
-        xf-batch     (map unwrap-tuple)
-        subscriber   (Thread.
-                      (fn []
-                        (println "[SUBSCRIBER] running")
-                        (loop []
-                          (when-let [result @(stream/take! ws ::drained)]
-                            (if (= result ::drained)
-                              (println "[SUBSCRIBER] server closed connection")
-                              (let [[query_name results] (json/parse-string result)]
-                                (bus/publish! out :out [query_name (into [] xf-batch results)])
-                                (recur)))))))]
-    (.start subscriber)
-    (->Connection ws out subscriber)))
+#?(:clj (defn create-conn [url]
+          (let [ws            @(http/websocket-client url)
+                out          (bus/event-bus)
+                unwrap-type  (fn [boxed] (second (first boxed)))
+                unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
+                xf-batch     (map unwrap-tuple)
+                subscriber   (Thread.
+                              (fn []
+                                (println "[SUBSCRIBER] running")
+                                (loop []
+                                  (when-let [result @(stream/take! ws ::drained)]
+                                    (if (= result ::drained)
+                                      (println "[SUBSCRIBER] server closed connection")
+                                      (let [[query_name results] (parse-json result)]
+                                        (bus/publish! out :out [query_name (into [] xf-batch results)])
+                                        (recur)))))))]
+            (.start subscriber)
+            (->Connection ws out subscriber))))
+
+#?(:cljs (defn create-conn [url]
+           (let [ws           (socket/connect url {:source (async/chan 50) :sink (async/chan 50)})
+                 out          (bus/event-bus)
+                 unwrap-type  (fn [boxed] (second (first boxed)))
+                 unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
+                 xf-batch     (map unwrap-tuple)
+                 subscriber   (do
+                                (js/console.log "[SUBSCRIBER] running")
+                                (go-loop []
+                                  (when-let [result (<! (:source ws))]
+                                    (if (= result :drained)
+                                      (js/console.log "[SUBSCRIBER] server closed connection")
+                                      (let [[query_name results] (parse-json result)]
+                                        (bus/publish! out :out [query_name (into [] xf-batch results)])
+                                        (recur))))))]
+             (->Connection ws out subscriber))))
 
 (defn debug-conn [url]
   (let [conn (create-conn url)]
     (stream/consume #(pprint/pprint %) (bus/subscribe (:out conn) :out))
     conn))
 
-(defmacro exec! [^Connection conn & forms]
-  (let [c   (gensym)
-        out (gensym)]
-    `(let [~c ~conn
-           ~out (bus/subscribe (.-out ~c) :out)]
-       (do ~@(for [form forms]
-               (cond
-                 (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
-                 (seq? form)
-                 (case (first form)
-                   'expect-> `(clojure.core/as-> @(stream/take! ~out) ~@(rest form))
-                   `(clojure.core/->> ~form (cheshire.core/generate-string) (stream/put! (.-ws ~c))))))))))
+(defn- if-cljs [env then else]
+  (if (:ns env) then else))
+
+#?(:clj (defmacro exec! [^Connection conn & forms]
+          (if-cljs &env
+                   (let [c   (gensym)
+                         out (gensym)]
+                     `(let [~c ~conn
+                            ~out (manifold-cljs.bus/subscribe (.-out ~c) :out)]
+                        (do ~@(for [form forms]
+                                (cond
+                                  (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
+                                  (seq? form)
+                                  (case (first form)
+                                    'expect-> `(manifold-cljs.deferred/chain (manifold-cljs.stream/take! ~out) #(clojure.core/as-> % ~@(rest form)))
+                                    `(clojure.core/->> ~form (clj-3df.core/stringify) (cljs.core.async/put! (:sink (.-ws ~c))))))))))
+                   (let [c   (gensym)
+                         out (gensym)]
+                     `(let [~c ~conn
+                            ~out (bus/subscribe (.-out ~c) :out)]
+                        (do ~@(for [form forms]
+                                (cond
+                                  (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
+                                  (seq? form)
+                                  (case (first form)
+                                    'expect-> `(clojure.core/as-> @(stream/take! ~out) ~@(rest form))
+                                    `(clojure.core/->> ~form (clj-3df.core/stringify) (stream/put! (.-ws ~c))))))))))))

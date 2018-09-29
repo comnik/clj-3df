@@ -1,2 +1,12 @@
 .cpcache/
 .nrepl-port
+nashorn_code_cache/
+.cljs_nashorn_repl
+.cljs_node_repl
+.cljs_rhino_repl
+.lein-repl-history
+.rebel_readline_history
+repl/
+out/
+target/
+cljs-test-runner-out/

@@ -14,7 +14,8 @@
     (keyword? plan)     (attr->int plan)
     (sequential? plan)  (mapv (partial encode-plan attr->int) plan)
     (associative? plan) (reduce-kv (fn [m k v] (assoc m k (encode-plan attr->int v))) {} plan)
-    (nil? plan)         (throw (ex-info "Plan contain's nils."))
+    (nil? plan)         (throw (ex-info "Plan contain's nils."
+                                        {:causes #{:contains-nil}}))
     :else               plan))
 
 (defn encode-rules [attr->int rules]

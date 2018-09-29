@@ -1,17 +1,26 @@
 (ns clj-3df.core
   (:refer-clojure :exclude [resolve])
   (:require
+   #?(:clj  [clojure.core.async :as async]
+      :cljs [cljs.core.async :as async :refer [<! >!]])
+   #?(:clj  [clojure.spec.alpha :as s]
+      :cljs [cljs.spec.alpha :as s])
+   #?(:clj  [aleph.http :as http])
+   #?(:clj  [manifold.stream :as stream]
+      :cljs [manifold-cljs.stream :as stream])
+   #?(:clj  [manifold.bus :as bus]
+      :cljs [manifold-cljs.bus :as bus])
+   #?(:clj  [manifold.deferred :as d]
+      :cljs [manifold-cljs.deferred :as d])
+   #?(:clj  [cheshire.core :as json])
+   #?(:cljs [clj-3df.socket :as socket])
    [clojure.pprint :as pprint]
    [clojure.string :as str]
    [clojure.set :as set]
-   #?(:clj [clojure.spec.alpha :as s]
-      :cljs [cljs.spec.alpha :as s])
-   [aleph.http :as http]
-   [manifold.stream :as stream]
-   [manifold.bus :as bus]
-   [cheshire.core :as json]
    [clj-3df.compiler :as compiler]
-   [clj-3df.encode :as encode]))
+   [clj-3df.encode :as encode])
+  #?(:cljs (:require-macros [cljs.core.async.macros :refer [go-loop]]
+                            [clj-3df.core :refer [exec!]])))
 
 (defprotocol IDB
   (-schema [db])

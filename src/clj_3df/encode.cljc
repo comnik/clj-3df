@@ -3,7 +3,10 @@
   understand. In particular, attributes and symbols will be encoded as
   integers.")
 
-(def encode-symbol (memoize (fn [sym] (clojure.lang.RT/nextID))))
+(def nextID (atom 0))
+
+(def encode-symbol (memoize (fn [sym] #?(:clj  (clojure.lang.RT/nextID)
+                                         :cljs (swap! nextID inc)))))
 
 (defn encode-plan [attr->int plan]
   (cond

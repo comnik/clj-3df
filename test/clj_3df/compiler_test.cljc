@@ -26,9 +26,10 @@
                 :where [?e1 :name ?n] [?e2 :name ?n]]]
 
     (testing "error is thrown on unbound symbols in a find-clause"
-      (is (thrown? Exception
+      (is (thrown? #?(:clj Exception
+                      :cljs js/Error)
                    (compile-query '[:find ?unbound :where [?bound :name "Dipper"]]))))
-    
+
     (is (= '{:Project
              [{:Join [{:HasAttr [?e1 :name ?n]} {:HasAttr [?e2 :name ?n]} [?n]]} [?e1 ?n ?e2]]}
            (compile-query query)))))
@@ -146,17 +147,19 @@
 
 (deftest test-or-join
   (testing "plain union not allowed if any path doesn't bind all symbols"
-    (is (thrown? Exception (compile-query '[:find ?x ?y
+    (is (thrown? #?(:clj  Exception
+                   :cljs js/Error) (compile-query '[:find ?x ?y
                                             :where (or [?x :edge ?y]
                                                        [?x :edge 14]
                                                        (and [?x :edge ?z] [?z :edge ?y]))]))))
 
   (testing "or-join not allowed if any path doesn't bind all symbols"
-    (is (thrown? Exception (compile-query '[:find ?x ?y ?z
+    (is (thrown? #?(:clj  Exception
+                    :cljs js/Error) (compile-query '[:find ?x ?y ?z
                                             :where (or-join [?x ?y ?z]
                                                      [?x :edge ?y]
                                                      (and [?x :edge ?z] [?z :edge ?y]))]))))
-  
+
   (testing "or-join hides additional symbols"
     (let [query '[:find ?x ?y
                   :where (or-join [?x ?y]
@@ -180,13 +183,15 @@
     (let [query '[:find ?e
                   :where (not [?e :name "Mabel"])]]
       ;; @TODO Decide what is the right semantics here. Disallow or negate?
-      (is (thrown? Exception (compile-query query)))))
+      (is (thrown? #?(:clj  Exception
+                      :cljs js/Error) (compile-query query)))))
 
   (testing "potential tautologies should be rejected"
     (let [query '[:find ?e
                   :where (or [?e :name "Mabel"]
                              (not [?e :name "Mabel"]))]]
-      (is (thrown? Exception (compile-query query)))))
+      (is (thrown? #?(:clj  Exception
+                      :cljs js/Error) (compile-query query)))))
 
   (testing "negation is fine, as long as bound by some other clause"
     (let [query '[:find ?e ?name

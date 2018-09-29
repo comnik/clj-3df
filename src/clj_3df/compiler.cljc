@@ -7,6 +7,8 @@
 
 ;; UTIL
 
+(def nextID (atom 0))
+
 (def ^:dynamic debug? false)
 (def log-level :info)
 
@@ -481,15 +483,16 @@
    (reduce (fn [unified next]
              (cond
                (instance? Disjunction next)
-               (let [unified    (with-meta unified {:duplication-tag (clojure.lang.RT/nextID)})
+               (let [unified    (with-meta unified {:duplication-tag #?(:clj  (clojure.lang.RT/nextID)
+                                                                        :cljs (swap! nextID inc))})
                      unify-path (partial unify-context unified)]
                  [(-> next
-                      ;; P1 AND (P2 OR P3) = (P1 AND P2) OR (P1 AND P3) 
+                      ;; P1 AND (P2 OR P3) = (P1 AND P2) OR (P1 AND P3)
                       (update :conjunctions #(map unify-path %))
                       ;; make sure or-join doesn't shadow anything
                       (update :symbols into (mapcat bound-symbols unified))
                       (update :symbols distinct))])
-                         
+
                :else
                (unify-with unified next))) unified ctx)))
 

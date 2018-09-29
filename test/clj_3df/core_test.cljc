@@ -1,9 +1,13 @@
 (ns clj-3df.core-test
   (:require
-   [clojure.test :refer [deftest is testing run-tests]]
-   [manifold.stream :as stream]
-   [manifold.bus :as bus]
-   [clj-3df.core :as df :refer [exec! create-conn register-query register-plan transact]]))
+   #?(:clj  [clojure.test :refer [deftest is testing run-tests]]
+      :cljs [cljs.test :refer-macros [deftest is testing run-tests]])
+   #?(:clj  [manifold.stream :as stream]
+      :cljs [manifold-cljs.stream :as stream])
+   #?(:clj  [manifold.bus :as bus]
+      :cljs [manifold-cljs.bus :as bus])
+   [clj-3df.core :as df :refer [exec! create-conn register-query register-plan transact]])
+  #?(:cljs (:require-macros [clj-3df.core :refer [exec!]])))
 
 (defn- debug-conn []
   (let [conn (create-conn "ws://127.0.0.1:6262")]

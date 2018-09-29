@@ -2,16 +2,21 @@
   (:require
    #?(:clj  [clojure.test :refer [deftest is testing run-tests]]
       :cljs [cljs.test :refer-macros [deftest is testing run-tests]])
-   #?(:clj  [manifold.stream :as stream]
-      :cljs [manifold-cljs.stream :as stream])
-   #?(:clj  [manifold.bus :as bus]
-      :cljs [manifold-cljs.bus :as bus])
+   #?(:clj  [clojure.core.async :as async :refer [<! >! go-loop]]
+      :cljs [cljs.core.async :as async :refer [<! >!]])
    [clj-3df.core :as df :refer [exec! create-conn register-query register-plan transact]])
-  #?(:cljs (:require-macros [clj-3df.core :refer [exec!]])))
+  #?(:cljs (:require-macros [clj-3df.core :refer [exec!]]
+                            [cljs.core.async :refer [go-loop]])))
+
 
 (defn- debug-conn []
-  (let [conn (create-conn "ws://127.0.0.1:6262")]
-    (stream/consume #(println %) (bus/subscribe (:out conn) :out))
+  (let [conn     (create-conn "ws://127.0.0.1:6262")
+        sub-chan (async/chan 50)
+        _        (async/sub (:out conn) :out sub-chan)]
+    (go-loop []
+      (when-let [{:keys [value]} (<! sub-chan)]
+        (println value))
+      (recur))
     conn))
 
 (comment
@@ -51,7 +56,7 @@
     (transact db [[:db/add 100 :read 901]])
     (transact db [[:db/add 901 :parent/child 902]])
     (register-query db "rba" '[:find ?user ?obj :where (read? ?user ?obj)] rules))
-  
+
   )
 
 ;; @TODO until unregister is available, the server has to be restarted

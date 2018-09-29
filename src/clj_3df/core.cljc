@@ -1,17 +1,12 @@
 (ns clj-3df.core
   (:refer-clojure :exclude [resolve])
   (:require
-   #?(:clj  [clojure.core.async :as async]
+   #?(:clj  [clojure.core.async :as async :refer [<! >! >!! <!! go go-loop]]
       :cljs [cljs.core.async :as async :refer [<! >!]])
    #?(:clj  [clojure.spec.alpha :as s]
       :cljs [cljs.spec.alpha :as s])
    #?(:clj  [aleph.http :as http])
-   #?(:clj  [manifold.stream :as stream]
-      :cljs [manifold-cljs.stream :as stream])
-   #?(:clj  [manifold.bus :as bus]
-      :cljs [manifold-cljs.bus :as bus])
-   #?(:clj  [manifold.deferred :as d]
-      :cljs [manifold-cljs.deferred :as d])
+   #?(:clj  [manifold.stream :as stream])
    #?(:clj  [cheshire.core :as json])
    #?(:cljs [clj-3df.socket :as socket])
    [clojure.pprint :as pprint]
@@ -152,7 +147,8 @@
 
 #?(:clj (defn create-conn [url]
           (let [ws            @(http/websocket-client url)
-                out          (bus/event-bus)
+                out-chan     (async/chan 50)
+                out          (async/pub  out-chan :topic)
                 unwrap-type  (fn [boxed] (second (first boxed)))
                 unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
                 xf-batch     (map unwrap-tuple)
@@ -164,14 +160,15 @@
                                     (if (= result ::drained)
                                       (println "[SUBSCRIBER] server closed connection")
                                       (let [[query_name results] (parse-json result)]
-                                        (bus/publish! out :out [query_name (into [] xf-batch results)])
+                                        (>!! out-chan  {:topic :out :value [query_name (into [] xf-batch results)]})
                                         (recur)))))))]
             (.start subscriber)
             (->Connection ws out subscriber))))
 
 #?(:cljs (defn create-conn [url]
            (let [ws           (socket/connect url {:source (async/chan 50) :sink (async/chan 50)})
-                 out          (bus/event-bus)
+                 out-chan     (async/chan 50)
+                 out          (async/pub  out-chan :topic)
                  unwrap-type  (fn [boxed] (second (first boxed)))
                  unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
                  xf-batch     (map unwrap-tuple)
@@ -182,13 +179,18 @@
                                     (if (= result :drained)
                                       (js/console.log "[SUBSCRIBER] server closed connection")
                                       (let [[query_name results] (parse-json result)]
-                                        (bus/publish! out :out [query_name (into [] xf-batch results)])
+                                        (>! out-chan  {:topic :out :value [query_name (into [] xf-batch results)]})
                                         (recur))))))]
              (->Connection ws out subscriber))))
 
 (defn debug-conn [url]
-  (let [conn (create-conn url)]
-    (stream/consume #(pprint/pprint %) (bus/subscribe (:out conn) :out))
+  (let [conn (create-conn url)
+        sub-chan (async/chan 50)
+        _  (async/sub (:out conn) :out sub-chan)]
+    (go-loop []
+      (when-let [{:keys [value]} (<! sub-chan)]
+        (println value))
+      (recur))
     conn))
 
 (defn- if-cljs [env then else]
@@ -197,24 +199,29 @@
 #?(:clj (defmacro exec! [^Connection conn & forms]
           (if-cljs &env
                    (let [c   (gensym)
-                         out (gensym)]
+                         out (gensym)
+                         _   (gensym)]
                      `(let [~c ~conn
-                            ~out (manifold-cljs.bus/subscribe (.-out ~c) :out)]
-                        (do ~@(for [form forms]
+                            ~out  (cljs.core.async/chan 50)
+                            ~_    (cljs.core.async/sub (.-out ~c) :out ~out)]
+                        (cljs.core.async/go
+                          (do ~@(for [form forms]
                                 (cond
                                   (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
                                   (seq? form)
                                   (case (first form)
-                                    'expect-> `(manifold-cljs.deferred/chain (manifold-cljs.stream/take! ~out) #(clojure.core/as-> % ~@(rest form)))
-                                    `(clojure.core/->> ~form (clj-3df.core/stringify) (cljs.core.async/put! (:sink (.-ws ~c))))))))))
+                                    'expect-> `(clojure.core/as-> (:value (cljs.core.async/<! ~out)) ~@(rest form))
+                                    `(clojure.core/->> ~form (clj-3df.core/stringify) (cljs.core.async/>! (:sink (.-ws ~c)))))))))))
                    (let [c   (gensym)
-                         out (gensym)]
+                         out (gensym)
+                         _   (gensym)]
                      `(let [~c ~conn
-                            ~out (bus/subscribe (.-out ~c) :out)]
+                            ~out  (async/chan 50)
+                            ~_    (async/sub (.-out ~c) :out ~out)]
                         (do ~@(for [form forms]
                                 (cond
                                   (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
                                   (seq? form)
                                   (case (first form)
-                                    'expect-> `(clojure.core/as-> @(stream/take! ~out) ~@(rest form))
+                                    'expect-> `(clojure.core/as-> (:value (<!! ~out)) ~@(rest form))
                                     `(clojure.core/->> ~form (clj-3df.core/stringify) (stream/put! (.-ws ~c))))))))))))

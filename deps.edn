@@ -3,7 +3,6 @@
          org.clojure/core.async    {:mvn/version "0.4.474"}
          org.clojure/clojurescript {:mvn/version "1.10.339"}
          aleph                     {:mvn/version "0.4.6"}
-         manifold-cljs             {:mvn/version "0.1.7-0"}
          cheshire                  {:mvn/version "5.8.0"}}
 
  :aliases

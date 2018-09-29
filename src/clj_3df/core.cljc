@@ -147,8 +147,8 @@
 
 #?(:clj (defn create-conn [url]
           (let [ws            @(http/websocket-client url)
-                out-chan     (async/chan 50)
-                out          (async/pub  out-chan :topic)
+                out-chan     (async/chan)
+                out          (async/pub  out-chan (fn [_] :out))
                 unwrap-type  (fn [boxed] (second (first boxed)))
                 unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
                 xf-batch     (map unwrap-tuple)
@@ -160,15 +160,15 @@
                                     (if (= result ::drained)
                                       (println "[SUBSCRIBER] server closed connection")
                                       (let [[query_name results] (parse-json result)]
-                                        (>!! out-chan  {:topic :out :value [query_name (into [] xf-batch results)]})
+                                        (>!! out-chan  [query_name (into [] xf-batch results)])
                                         (recur)))))))]
             (.start subscriber)
             (->Connection ws out subscriber))))
 
 #?(:cljs (defn create-conn [url]
-           (let [ws           (socket/connect url {:source (async/chan 50) :sink (async/chan 50)})
-                 out-chan     (async/chan 50)
-                 out          (async/pub  out-chan :topic)
+           (let [ws           (socket/connect url)
+                 out-chan     (async/chan)
+                 out          (async/pub  out-chan (fn [_] :out))
                  unwrap-type  (fn [boxed] (second (first boxed)))
                  unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
                  xf-batch     (map unwrap-tuple)
@@ -179,17 +179,17 @@
                                     (if (= result :drained)
                                       (js/console.log "[SUBSCRIBER] server closed connection")
                                       (let [[query_name results] (parse-json result)]
-                                        (>! out-chan  {:topic :out :value [query_name (into [] xf-batch results)]})
+                                        (>! out-chan  [query_name (into [] xf-batch results)])
                                         (recur))))))]
              (->Connection ws out subscriber))))
 
 (defn debug-conn [url]
   (let [conn (create-conn url)
-        sub-chan (async/chan 50)
+        sub-chan (async/chan)
         _  (async/sub (:out conn) :out sub-chan)]
     (go-loop []
-      (when-let [{:keys [value]} (<! sub-chan)]
-        (println value))
+      (when-let [msg (<! sub-chan)]
+        (println msg))
       (recur))
     conn))
 
@@ -202,7 +202,7 @@
                          out (gensym)
                          _   (gensym)]
                      `(let [~c ~conn
-                            ~out  (cljs.core.async/chan 50)
+                            ~out  (cljs.core.async/chan)
                             ~_    (cljs.core.async/sub (.-out ~c) :out ~out)]
                         (cljs.core.async/go
                           (do ~@(for [form forms]
@@ -210,18 +210,18 @@
                                   (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
                                   (seq? form)
                                   (case (first form)
-                                    'expect-> `(clojure.core/as-> (:value (cljs.core.async/<! ~out)) ~@(rest form))
+                                    'expect-> `(clojure.core/as-> (cljs.core.async/<! ~out) ~@(rest form))
                                     `(clojure.core/->> ~form (clj-3df.core/stringify) (cljs.core.async/>! (:sink (.-ws ~c)))))))))))
                    (let [c   (gensym)
                          out (gensym)
                          _   (gensym)]
                      `(let [~c ~conn
-                            ~out  (async/chan 50)
+                            ~out  (async/chan )
                             ~_    (async/sub (.-out ~c) :out ~out)]
                         (do ~@(for [form forms]
                                 (cond
                                   (nil? form) (throw (ex-info "Nil form within execution." {:form form}))
                                   (seq? form)
                                   (case (first form)
-                                    'expect-> `(clojure.core/as-> (:value (<!! ~out)) ~@(rest form))
+                                    'expect-> `(clojure.core/as-> (<!! ~out) ~@(rest form))
                                     `(clojure.core/->> ~form (clj-3df.core/stringify) (stream/put! (.-ws ~c))))))))))))

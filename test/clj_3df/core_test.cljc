@@ -11,11 +11,11 @@
 
 (defn- debug-conn []
   (let [conn     (create-conn "ws://127.0.0.1:6262")
-        sub-chan (async/chan 50)
+        sub-chan (async/chan)
         _        (async/sub (:out conn) :out sub-chan)]
     (go-loop []
-      (when-let [{:keys [value]} (<! sub-chan)]
-        (println value))
+      (when-let [msg (<! sub-chan)]
+        (println msg))
       (recur))
     conn))
 

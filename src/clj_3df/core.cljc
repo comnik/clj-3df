@@ -147,48 +147,68 @@
 
 #?(:clj (defn create-conn [url]
           (let [ws            @(http/websocket-client url)
-                out-chan     (async/chan)
-                out          (async/pub  out-chan (fn [_] :out))
-                unwrap-type  (fn [boxed] (second (first boxed)))
-                unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
-                xf-batch     (map unwrap-tuple)
-                subscriber   (Thread.
-                              (fn []
-                                (println "[SUBSCRIBER] running")
-                                (loop []
-                                  (when-let [result @(stream/take! ws ::drained)]
-                                    (if (= result ::drained)
-                                      (println "[SUBSCRIBER] server closed connection")
-                                      (let [[query_name results] (parse-json result)]
-                                        (>!! out-chan  [query_name (into [] xf-batch results)])
-                                        (recur)))))))]
+                out           (async/chan)
+                unwrap-type   (fn [boxed] (second (first boxed)))
+                unwrap-tuple  (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
+                xf-batch      (map unwrap-tuple)
+                subscriber    (Thread.
+                               (fn []
+                                 (println "[SUBSCRIBER] running")
+                                 (loop []
+                                   (when-let [result @(stream/take! ws ::drained)]
+                                     (if (= result ::drained)
+                                       (println "[SUBSCRIBER] server closed connection")
+                                       (let [[query_name results] (parse-json result)]
+                                         (>!! out  [query_name (into [] xf-batch results)])
+                                         (recur)))))))]
             (.start subscriber)
             (->Connection ws out subscriber))))
 
+;; #?(:clj (defn create-conn [url]
+;;           (let [ws           @(http/websocket-client url)
+;;                 source       (async/chan)
+;;                 _            (stream/connect ws source>)
+;;                 out          (async/chan)
+;;                 unwrap-type  (fn [boxed] (second (first boxed)))
+;;                 unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
+;;                 xf-batch     (map unwrap-tuple)
+;;                 xf-pipeline  (map (fn [result]
+;;                                     (let [[query_name results] (parse-json result)]
+;;                                       [query_name (into [] xf-batch results)])))
+;;                 subscriber   (async/thread
+;;                                (do
+;;                                 (println "[SUBSCRIBER] running")
+;;                                 (let [pipeline (async/pipeline 1 out xf-pipeline source)]
+;;                                   (do
+;;                                     (<!! pipeline)
+;;                                     (async/close! pipeline)
+;;                                     (println "[SUBSCRIBER] server closed connection" )))))]
+;;             (->Connection ws out subscriber))))
+
 #?(:cljs (defn create-conn [url]
            (let [ws           (socket/connect url)
-                 out-chan     (async/chan)
-                 out          (async/pub  out-chan (fn [_] :out))
+                 source       (:source ws)
+                 out          (async/chan)
                  unwrap-type  (fn [boxed] (second (first boxed)))
                  unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
                  xf-batch     (map unwrap-tuple)
                  subscriber   (do
                                 (js/console.log "[SUBSCRIBER] running")
                                 (go-loop []
-                                  (when-let [result (<! (:source ws))]
+                                  (when-let [result (<! source)]
                                     (if (= result :drained)
                                       (js/console.log "[SUBSCRIBER] server closed connection")
                                       (let [[query_name results] (parse-json result)]
-                                        (>! out-chan  [query_name (into [] xf-batch results)])
+                                        (>! out  [query_name (into [] xf-batch results)])
                                         (recur))))))]
              (->Connection ws out subscriber))))
 
+
 (defn debug-conn [url]
-  (let [conn (create-conn url)
-        sub-chan (async/chan)
-        _  (async/sub (:out conn) :out sub-chan)]
+  (let [conn     (create-conn url)
+        out     (:out conn)]
     (go-loop []
-      (when-let [msg (<! sub-chan)]
+      (when-let [msg (<! out)]
         (println msg))
       (recur))
     conn))
@@ -199,11 +219,9 @@
 #?(:clj (defmacro exec! [^Connection conn & forms]
           (if-cljs &env
                    (let [c   (gensym)
-                         out (gensym)
-                         _   (gensym)]
-                     `(let [~c ~conn
-                            ~out  (cljs.core.async/chan)
-                            ~_    (cljs.core.async/sub (.-out ~c) :out ~out)]
+                         out (gensym)]
+                     `(let [~c   ~conn
+                            ~out (.-out ~c)]
                         (cljs.core.async/go
                           (do ~@(for [form forms]
                                 (cond
@@ -213,11 +231,9 @@
                                     'expect-> `(clojure.core/as-> (cljs.core.async/<! ~out) ~@(rest form))
                                     `(clojure.core/->> ~form (clj-3df.core/stringify) (cljs.core.async/>! (:sink (.-ws ~c)))))))))))
                    (let [c   (gensym)
-                         out (gensym)
-                         _   (gensym)]
-                     `(let [~c ~conn
-                            ~out  (async/chan )
-                            ~_    (async/sub (.-out ~c) :out ~out)]
+                         out (gensym)]
+                     `(let [~c   ~conn
+                            ~out (.-out ~c)]
                         (do ~@(for [form forms]
                                 (cond
                                   (nil? form) (throw (ex-info "Nil form within execution." {:form form}))

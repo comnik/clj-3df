@@ -145,68 +145,57 @@
 
 (defrecord Connection [ws out subscriber])
 
-#?(:clj (defn create-conn [url]
-          (let [ws            @(http/websocket-client url)
-                out           (async/chan)
-                unwrap-type   (fn [boxed] (second (first boxed)))
-                unwrap-tuple  (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
-                xf-batch      (map unwrap-tuple)
-                subscriber    (Thread.
-                               (fn []
-                                 (println "[SUBSCRIBER] running")
-                                 (loop []
-                                   (when-let [result @(stream/take! ws ::drained)]
-                                     (if (= result ::drained)
-                                       (println "[SUBSCRIBER] server closed connection")
-                                       (let [[query_name results] (parse-json result)]
-                                         (>!! out  [query_name (into [] xf-batch results)])
-                                         (recur)))))))]
-            (.start subscriber)
-            (->Connection ws out subscriber))))
+(def xf-parse
+  (map (fn [result]
+         (let [unwrap-type  (fn [boxed] (second (first boxed)))
+               unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
+               xf-batch     (map unwrap-tuple)]
+           (let [[query_name results] (parse-json result)]
+             [query_name (into [] xf-batch results)])))))
 
-;; #?(:clj (defn create-conn [url]
-;;           (let [ws           @(http/websocket-client url)
-;;                 source       (async/chan)
-;;                 _            (stream/connect ws source>)
-;;                 out          (async/chan)
-;;                 unwrap-type  (fn [boxed] (second (first boxed)))
-;;                 unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
-;;                 xf-batch     (map unwrap-tuple)
-;;                 xf-pipeline  (map (fn [result]
-;;                                     (let [[query_name results] (parse-json result)]
-;;                                       [query_name (into [] xf-batch results)])))
-;;                 subscriber   (async/thread
-;;                                (do
-;;                                 (println "[SUBSCRIBER] running")
-;;                                 (let [pipeline (async/pipeline 1 out xf-pipeline source)]
-;;                                   (do
-;;                                     (<!! pipeline)
-;;                                     (async/close! pipeline)
-;;                                     (println "[SUBSCRIBER] server closed connection" )))))]
-;;             (->Connection ws out subscriber))))
+#?(:clj (defn create-conn
+          ([url]
+            (create-conn url nil))
+          ([url options]
+            (let [ws            @(http/websocket-client url)
+                  out           (:channel options (async/chan 100 xf-parse))
+                  subscriber    (Thread.
+                                 (fn []
+                                   (println "[SUBSCRIBER] running")
+                                   (loop []
+                                     (when-let [result @(stream/take! ws ::drained)]
+                                       (if (= result ::drained)
+                                         (do
+                                           (println "[SUBSCRIBER] server closed connection")
+                                           (async/close! out))
+                                         (do
+                                           (>!! out result)
+                                           (recur)))))))]
+              (.start subscriber)
+              (->Connection ws out subscriber)))))
 
-#?(:cljs (defn create-conn [url]
-           (let [ws           (socket/connect url)
-                 source       (:source ws)
-                 out          (async/chan)
-                 unwrap-type  (fn [boxed] (second (first boxed)))
-                 unwrap-tuple (fn [[tuple diff]] [(mapv unwrap-type tuple) diff])
-                 xf-batch     (map unwrap-tuple)
-                 subscriber   (do
-                                (js/console.log "[SUBSCRIBER] running")
-                                (go-loop []
-                                  (when-let [result (<! source)]
-                                    (if (= result :drained)
-                                      (js/console.log "[SUBSCRIBER] server closed connection")
-                                      (let [[query_name results] (parse-json result)]
-                                        (>! out  [query_name (into [] xf-batch results)])
-                                        (recur))))))]
-             (->Connection ws out subscriber))))
-
+#?(:cljs (defn create-conn
+           ([url]
+             (create-conn url nil))
+           ([url options]
+             (let [ws           (socket/connect url)
+                   out          (:channel options (async/chan 100 xf-parse))
+                   subscriber   (do
+                                  (js/console.log "[SUBSCRIBER] running")
+                                  (go-loop []
+                                    (when-let [result (<! (:source ws))]
+                                      (if (= result :drained)
+                                        (do
+                                           (println "[SUBSCRIBER] server closed connection")
+                                           (async/close! out))
+                                        (do
+                                          (>! out result)
+                                          (recur))))))]
+               (->Connection ws out subscriber)))))
 
 (defn debug-conn [url]
   (let [conn     (create-conn url)
-        out     (:out conn)]
+        out      (:out conn)]
     (go-loop []
       (when-let [msg (<! out)]
         (println msg))
@@ -241,3 +230,35 @@
                                   (case (first form)
                                     'expect-> `(clojure.core/as-> (<!! ~out) ~@(rest form))
                                     `(clojure.core/->> ~form (clj-3df.core/stringify) (stream/put! (.-ws ~c))))))))))))
+
+(comment
+
+  (def conn (create-conn  "ws://127.0.0.1:6262"))
+
+  (def out-pub
+    (let [out      (:out conn)
+          topic-fn first]
+      (async/pub out topic-fn)))
+
+  (defn listener [pub topic-name]
+    (let [c (async/chan)
+          _ (async/sub pub topic-name c)]
+      (go-loop []
+               (println (<! c))
+               (recur))))
+
+  (def db (create-db {:name {:db/valueType :String} :age {:db/valueType :Number}}))
+
+  (exec! conn (register-query db "basic-conjunction" '[:find ?e ?age :where [?e :name "Mabel"] [?e :age ?age]]))
+
+  (exec! conn (transact db [[:db/add 1 :name "Dipper"] [:db/add 1 :age 30]]))
+
+  (exec! conn (transact db [{:db/id 2 :name "Mabel" :age 26}]))
+
+  (exec! conn (transact db [[:db/retract 2 :name "Mabel"]]))
+
+  (exec! conn (register-query db "basic-disjunction" '[:find ?e :where (or [?e :name "Mabel"] [?e :name "Dipper"])]))
+
+  )
+
+

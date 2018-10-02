@@ -8,17 +8,17 @@
 ;; that there is a one-to-one correspondence between tests and actual,
 ;; user-facing query engine features.
 
-(deftest test-patterns  
-  (is (= '{:Lookup [876 :name ?n]}
+(deftest test-patterns
+  (is (= '{:MatchEA [876 :name ?n]}
          (compile-query '[:find ?n :where [876 :name ?n]])))
 
-  (is (= '{:Entity [429 ?a ?v]}
+  (is (= '{:MatchE [429 ?a ?v]}
          (compile-query '[:find ?a ?v :where [429 ?a ?v]])))
 
-  (is (= '{:HasAttr [?e :name ?v]}
+  (is (= '{:MatchA [?e :name ?v]}
          (compile-query '[:find ?e ?v :where [?e :name ?v]])))
 
-  (is (= '{:Filter [?e :name {:String "Dipper"}]}
+  (is (= '{:MatchAV [?e :name {:String "Dipper"}]}
          (compile-query '[:find ?e :where [?e :name "Dipper"]]))))
 
 (deftest test-find-clause
@@ -31,14 +31,14 @@
                    (compile-query '[:find ?unbound :where [?bound :name "Dipper"]]))))
 
     (is (= '{:Project
-             [[?e1 ?n ?e2] {:Join [{:HasAttr [?e1 :name ?n]} {:HasAttr [?e2 :name ?n]} [?n]]}]}
+             [[?e1 ?n ?e2] {:Join [[?n] {:MatchA [?e1 :name ?n]} {:MatchA [?e2 :name ?n]}]}]}
            (compile-query query)))))
 
 (deftest test-joins
   (testing "simple join"
     (let [query '[:find ?e ?n ?a
                   :where [?e :name ?n] [?e :age ?a]]]
-      (is (= '{:Join [{:HasAttr [?e :name ?n]} {:HasAttr [?e :age ?a]} [?e]]}
+      (is (= '{:Join [[?e] {:MatchA [?e :name ?n]} {:MatchA [?e :age ?a]}]}
              (compile-query query)))))
 
   (testing "multiple joins"
@@ -47,9 +47,9 @@
       (is (= '{:Project
                [[?e1 ?n1 ?e2 ?n2]
                 {:Join
-                 [{:Join [{:HasAttr [?e1 :name ?n1]} {:HasAttr [?e1 :friend ?e2]} [?e1]]}
-                  {:HasAttr [?e2 :name ?n2]}
-                  [?e2]]}]}
+                 [[?e2]
+                  {:Join [[?e1] {:MatchA [?e1 :name ?n1]} {:MatchA [?e1 :friend ?e2]}]}
+                  {:MatchA [?e2 :name ?n2]}]}]}
              (compile-query query))))))
 
 (deftest test-or
@@ -59,8 +59,8 @@
                   (or [?e :name "Dipper"]
                       [?e :age 12])]]
       (is (= '{:Union
-               [[?e] [{:Filter [?e :name {:String "Dipper"}]}
-                      {:Filter [?e :age {:Number 12}]}]]}
+               [[?e] [{:MatchAV [?e :name {:String "Dipper"}]}
+                      {:MatchAV [?e :age {:Number 12}]}]]}
              (compile-query query)))))
 
   (testing "multiple unions on the same symbol should be merged together"
@@ -69,9 +69,9 @@
                              [?e :age 12]
                              [?e :admin? false])]]
       (is (= '{:Union [[?e]
-                       [{:Filter [?e :name {:String "Dipper"}]}
-                        {:Filter [?e :age {:Number 12}]}
-                        {:Filter [?e :admin? {:Bool false}]}]]}
+                       [{:MatchAV [?e :name {:String "Dipper"}]}
+                        {:MatchAV [?e :age {:Number 12}]}
+                        {:MatchAV [?e :admin? {:Bool false}]}]]}
              (compile-query query))))))
 
 (deftest test-operators
@@ -83,12 +83,12 @@
                       [?e :age 12])]]
       (is (= '{:Union
                [[?e]
-                [{:Join [{:Filter [?e :name {:String "Mabel"}]}
-                         {:Filter [?e :age {:Number 14}]}
-                         [?e]]}
-                 {:Join [{:Filter [?e :name {:String "Mabel"}]}
-                         {:Filter [?e :age {:Number 12}]}
-                         [?e]]}]]}
+                [{:Join [[?e]
+                         {:MatchAV [?e :name {:String "Mabel"}]}
+                         {:MatchAV [?e :age {:Number 14}]}]}
+                 {:Join [[?e]
+                         {:MatchAV [?e :name {:String "Mabel"}]}
+                         {:MatchAV [?e :age {:Number 12}]}]}]]}
              (compile-query query)))))
 
   (testing "complex combination"
@@ -101,19 +101,19 @@
       (is (= '{:Union
                [[?e ?salary]
                 [{:Join
-                  [{:Join
-                    [{:Filter [?e :name {:String "Mabel"}]}
-                     {:HasAttr [?e :salary ?salary]}
-                     [?e]]}
-                   {:Filter [?e :age {:Number 14}]}
-                   [?e]]}
+                  [[?e]
+                   {:Join
+                    [[?e]
+                     {:MatchAV [?e :name {:String "Mabel"}]}
+                     {:MatchA [?e :salary ?salary]}]}
+                   {:MatchAV [?e :age {:Number 14}]}]}
                  {:Join
-                  [{:Join
-                    [{:Filter [?e :name {:String "Mabel"}]}
-                     {:HasAttr [?e :salary ?salary]}
-                     [?e]]}
-                   {:Filter [?e :age {:Number 12}]}
-                   [?e]]}]]}
+                  [[?e]
+                   {:Join
+                    [[?e]
+                     {:MatchAV [?e :name {:String "Mabel"}]}
+                     {:MatchA [?e :salary ?salary]}]}
+                   {:MatchAV [?e :age {:Number 12}]}]}]]}
              (compile-query query)))))
 
   (testing "nested combination"
@@ -124,31 +124,31 @@
                   (or [?e :age 14]
                       (and [?e :age 12]
                            [?e :salary 1000]))]]
-      (is (= '{:Union					
+      (is (= '{:Union
                [(?e ?salary)
                 [{:Join
-                  [{:Join
-                    [{:Filter [?e :name {:String "Mabel"}]}
-                     {:HasAttr [?e :salary ?salary]}
-                     [?e]]}
-                   {:Filter [?e :age {:Number 14}]}
-                   [?e]]}
+                  [[?e]
+                   {:Join
+                    [[?e]
+                     {:MatchAV [?e :name {:String "Mabel"}]}
+                     {:MatchA [?e :salary ?salary]}]}
+                   {:MatchAV [?e :age {:Number 14}]}]}
                  {:Join
-                  [{:Join
-                    [{:Join
-                      [{:Filter [?e :name {:String "Mabel"}]}
-                       {:HasAttr [?e :salary ?salary]}
-                       [?e]]}
-                     {:Filter [?e :age {:Number 12}]}
-                     [?e]]}
-                   {:Filter [?e :salary {:Number 1000}]}
-                   [?e]]}]]}
+                  [[?e]
+                   {:Join
+                    [[?e]
+                     {:Join
+                      [[?e]
+                       {:MatchAV [?e :name {:String "Mabel"}]}
+                       {:MatchA [?e :salary ?salary]}]}
+                     {:MatchAV [?e :age {:Number 12}]}]}
+                   {:MatchAV [?e :salary {:Number 1000}]}]}]]}
              (compile-query query))))))
 
 (deftest test-or-join
   (testing "plain union not allowed if any path doesn't bind all symbols"
     (is (thrown? #?(:clj  Exception
-                   :cljs js/Error) (compile-query '[:find ?x ?y
+                    :cljs js/Error) (compile-query '[:find ?x ?y
                                             :where (or [?x :edge ?y]
                                                        [?x :edge 14]
                                                        (and [?x :edge ?z] [?z :edge ?y]))]))))
@@ -167,8 +167,8 @@
                            (and [?x :edge ?z]
                                 [?z :edge ?y]))]]
       (is (= '{:Union [[?x ?y]
-                       [{:HasAttr [?x :edge ?y]}
-                        {:Join [{:HasAttr [?x :edge ?z]} {:HasAttr [?z :edge ?y]} [?z]]}]]}
+                       [{:MatchA [?x :edge ?y]}
+                        {:Join [[?z] {:MatchA [?x :edge ?z]} {:MatchA [?z :edge ?y]}]}]]}
              (compile-query query))))))
 
 (deftest test-negation
@@ -176,7 +176,7 @@
     (let [query '[:find ?e
                   :where [?e :age 12] (not [?e :name "Mabel"])]]
       (is (= '{:Antijoin
-               [{:Filter [?e :age {:Number 12}]} {:Filter [?e :name {:String "Mabel"}]} [?e]]}
+               [[?e] {:MatchAV [?e :age {:Number 12}]} {:MatchAV [?e :name {:String "Mabel"}]}]}
              (compile-query query)))))
 
   (testing "fully unbounded not should be rejected"
@@ -201,11 +201,11 @@
                       (not [?e :name "Mabel"]))]]
       ;; @TODO
       #_(is (= {:Join
-                [{:HasAttr [0 100 1]}
+                [0
+                 {:MatchA [0 100 1]}
                  {:Union [[0]
-                          {:Filter [0 100 {:String "Mabel"}]}
-                          {:Filter [0 ]}]}
-                 0]}
+                          {:MatchAV [0 100 {:String "Mabel"}]}
+                          {:MatchAV [0 ]}]}]}
                (compile-query query)))))
 
   (testing "contradiction"
@@ -213,9 +213,9 @@
                   :where (and [?e :name "Mabel"]
                               (not [?e :name "Mabel"]))]]
       (is (= '{:Antijoin
-               [{:Filter [?e :name {:String "Mabel"}]}
-                {:Filter [?e :name {:String "Mabel"}]}
-                [?e]]}
+               [[?e]
+                {:MatchAV [?e :name {:String "Mabel"}]}
+                {:MatchAV [?e :name {:String "Mabel"}]}]}
              (compile-query query))))))
 
 ;; @TODO turn into integration test
@@ -227,8 +227,8 @@
                   (and [?x :edge ?z]
                        (recur ?z ?y)))]]
     (is (= '{:Union [[?x ?y]
-                     [{:HasAttr [?x :edge ?y]}
-                      {:Join [{:HasAttr [?x :edge ?z]} {:RuleExpr ["recur" [?z ?y]]} [?z]]}]]}
+                     [{:MatchA [?x :edge ?y]}
+                      {:Join [[?z] {:MatchA [?x :edge ?z]} {:RuleExpr [[?z ?y] "recur"]}]}]]}
            (compile-query query)))))
 
 ;; @TODO turn into integration test
@@ -240,14 +240,14 @@
                   (and [?z :edge ?y]
                        (recur ?x ?z)))]]
     (is (= '{:Union [[?x ?y]
-                     [{:HasAttr [?x :node ?y]}
-                      {:Join [{:HasAttr [?z :edge ?y]} {:RuleExpr ["recur" [?x ?z]]} [?z]]}]]}
+                     [{:MatchA [?x :node ?y]}
+                      {:Join [[?z] {:MatchA [?z :edge ?y]} {:RuleExpr [[?x ?z] "recur"]}]}]]}
            (compile-query query)))))
 
 (deftest test-rules
   (testing "simple rule"
     (let [rules '[[(admin? ?user) [?user :admin? true]]]]
-      (is (= #{{:name "admin?" :plan '{:Filter [?user :admin? {:Bool true}]}}}
+      (is (= #{{:name "admin?" :plan '{:MatchAV [?user :admin? {:Bool true}]}}}
              (set (compile-rules rules))))))
 
   (testing "recursive rule"
@@ -256,9 +256,9 @@
       (is (= #{{:name "propagate"
                 :plan '{:Union
                         [[?x ?y]
-                         [{:HasAttr [?x :node ?y]}
-                          {:Join [{:HasAttr [?z :edge ?y]}
-                                  {:RuleExpr ["propagate" [?x ?z]]} [?z]]}]]}}}
+                         [{:MatchA [?x :node ?y]}
+                          {:Join [[?z]
+                                  {:MatchA [?z :edge ?y]} {:RuleExpr [[?x ?z] "propagate"]}]}]]}}}
              (set (compile-rules rules))))))
 
   (testing "rules can be split across many bodies"
@@ -272,10 +272,10 @@
                 :plan {:Union
                        [[1 0]
                         [{:Filter [0 100 {:String "Object"}]}
-                         {:Join [{:HasAttr [1 100 2]} {:HasAttr [0 100 2]} [2]]}
-                         {:HasAttr [1 700 0]}
+                         {:Join [[2] {:MatchA [1 100 2]} {:MatchA [0 100 2]}]}
+                         {:MatchA [1 700 0]}
                          {:Join
-                          [{:HasAttr [1 700 3]} {:RuleExpr ["subtype" [3 0]]} [3]]}]]}}}
+                          [[3] {:MatchA [1 700 3]} {:RuleExpr [[3 0] "subtype"]}]}]]}}}
              (set (compile-rules rules)))))))
 
 (deftest test-predicates
@@ -287,10 +287,10 @@
                   [(< ?a1 ?a2)]]]
       (is (= '{:Project
                [[?a1 ?a2]
-                {:PredExpr
-                 ["LT"
-                  [?a1 ?a2]
-                  {:Join [{:HasAttr [?user :age ?a1]} {:HasAttr [?user :age ?a2]} [?user]]}]}]}
+                {:Filter
+                 [[?a1 ?a2]
+                  "LT"
+                  {:Join [[?user] {:MatchA [?user :age ?a1]} {:MatchA [?user :age ?a2]}]}]}]}
              (compile-query query)))))
 
   (testing "predicate union"
@@ -301,8 +301,8 @@
                       [(< ?age 18)])]]
       (is (= '{:Union
                [[?user ?age]
-                {:PredExpr ["GTE" [?age] {:HasAttr [?user :age ?age]}]}
-                {:PredExpr ["LT" [?age] {:HasAttr [?user :age ?age]}]}]}
+                {:Filter [[?age] "GTE" {:MatchA [?user :age ?age]}]}
+                {:Filter [[?age] "LT" {:MatchA [?user :age ?age]}]}]}
              (compile-query query)))))
 
   (testing "nested predicates"
@@ -313,39 +313,39 @@
                   (or [(> ?t1 ?t2)]
                       (and [(= ?parent ?child1)]
                            [(< ?t1 ?t2)]))]]
-      (is (= '{:Union					
+      (is (= '{:Union
                [(?child1 ?child2)
-                [{:PredExpr
-                  ["GT"
-                   [?t1 ?t2]
+                [{:Filter
+                  [[?t1 ?t2]
+                   "GT"
                    {:Join
-                    [{:Join
-                      [{:Join
-                        [{:HasAttr [?parent :child ?child1]}
-                         {:HasAttr [?child1 :timestamp ?t1]}
-                         [?child1]]}
-                       {:HasAttr [?parent :child ?child2]}
-                       [?parent]]}
-                     {:HasAttr [?child2 :timestamp ?t2]}
-                     [?child2]]}]}
-                 {:PredExpr
-                  ["EQ"
-                   [?parent ?child1]
-                   {:PredExpr
-                    ["LT"
-                     [?t1 ?t2]
+                    [[?child2]
                      {:Join
-                      [{:Join
-                        [{:Join
-                          [{:HasAttr [?parent :child ?child1]}
-                           {:HasAttr [?child1 :timestamp ?t1]}
-                           [?child1]]}
-                         {:HasAttr [?parent :child ?child2]}
-                         [?parent]]}
-                       {:HasAttr [?child2 :timestamp ?t2]}
-                       [?child2]]}]}]}]]}
+                      [[?parent]
+                       {:Join
+                        [[?child1]
+                         {:MatchA [?parent :child ?child1]}
+                         {:MatchA [?child1 :timestamp ?t1]}]}
+                       {:MatchA [?parent :child ?child2]}]}
+                     {:MatchA [?child2 :timestamp ?t2]}]}]}
+                 {:Filter
+                  [[?parent ?child1]
+                   "EQ"
+                   {:Filter
+                    [[?t1 ?t2]
+                     "LT"
+                     {:Join
+                      [[?child2]
+                       {:Join
+                        [[?parent]
+                         {:Join
+                          [[?child1]
+                           {:MatchA [?parent :child ?child1]}
+                           {:MatchA [?child1 :timestamp ?t1]}]}
+                         {:MatchA [?parent :child ?child2]}]}
+                       {:MatchA [?child2 :timestamp ?t2]}]}]}]}]]}
              (compile-query query)))))
-  
+
   #_(testing "nested predicates w/ cartesian"
       (let [query '[:find ?child1 ?child2
                     :where
@@ -355,11 +355,11 @@
                         (and [(= ?ctr1 ?ctr2)]
                              [(> ?n1 ?n2)]))]]
         (is (= '{:Union
-                 [[?user ?age]
-                  {:PredExpr ["GT" [?ctr1 ?ctr2]
-                              {:Join [{:HasAttr [?child1 :id/ctr ?ctr1]}
-                                      {:HasAttr [?child1 :id/ctr ?ctr1]}]}]}
-                  {:PredExpr ["LT" [?age] {:HasAttr [?user :age ?age]}]}]}
+                 [[?child1 ?child2]
+                  {:Filter [[?ctr1 ?ctr2] "GT"
+                              {:Join [{:MatchA [?child1 :id/ctr ?ctr1]}
+                                      {:MatchA [?child1 :id/ctr ?ctr1]}]}]}
+                  {:Filter [[?age] "LT" {:MatchA [?user :age ?age]}]}]}
              (compile-query query)))))
 
   (testing "nested predicates + patterns"
@@ -371,40 +371,40 @@
                       (and [?child1 :foo "bar"]
                            [(= ?ctr1 ?ctr2)]
                            [(> ?n1 ?n2)]))]]
-      (is (= '{:Union					
+      (is (= '{:Union
                [(?child1 ?child2)
-                [{:PredExpr
-                  ["GT"
-                   [?ctr1 ?ctr2]
+                [{:Filter
+                  [[?ctr1 ?ctr2]
+                   "GT"
                    {:Join
-                    [{:Join
-                      [{:HasAttr [?child2 :id/ctr ?ctr2]}
-                       {:HasAttr [?child2 :id/node ?n2]}
-                       [?child2]]}
+                    [[]
                      {:Join
-                      [{:HasAttr [?child1 :id/ctr ?ctr1]}
-                       {:HasAttr [?child1 :id/node ?n1]}
-                       [?child1]]}
-                     []]}]}
-                 {:PredExpr
-                  ["EQ"
-                   [?ctr1 ?ctr2]
-                   {:PredExpr
-                    ["GT"
-                     [?n1 ?n2]
+                      [[?child2]
+                       {:MatchA [?child2 :id/ctr ?ctr2]}
+                       {:MatchA [?child2 :id/node ?n2]}]}
                      {:Join
-                      [{:Join
-                        [{:Join
-                          [{:HasAttr [?child1 :id/ctr ?ctr1]}
-                           {:HasAttr [?child1 :id/node ?n1]}
-                           [?child1]]}
-                         {:Filter [?child1 :foo {:String "bar"}]}
-                         [?child1]]}
+                      [[?child1]
+                       {:MatchA [?child1 :id/ctr ?ctr1]}
+                       {:MatchA [?child1 :id/node ?n1]}]}]}]}
+                 {:Filter
+                  [[?ctr1 ?ctr2]
+                   "EQ"
+                   {:Filter
+                    [[?n1 ?n2]
+                     "GT"
+                     {:Join
+                      [[]
                        {:Join
-                        [{:HasAttr [?child2 :id/ctr ?ctr2]}
-                         {:HasAttr [?child2 :id/node ?n2]}
-                         [?child2]]}
-                       []]}]}]}]]}
+                        [[?child1]
+                         {:Join
+                          [[?child1]
+                           {:MatchA [?child1 :id/ctr ?ctr1]}
+                           {:MatchA [?child1 :id/node ?n1]}]}
+                         {:MatchAV [?child1 :foo {:String "bar"}]}]}
+                       {:Join
+                        [[?child2]
+                         {:MatchA [?child2 :id/ctr ?ctr2]}
+                         {:MatchA [?child2 :id/node ?n2]}]}]}]}]}]]}
              (compile-query query))))))
 
 ;; (deftest test-inputs
@@ -413,10 +413,10 @@
 ;;                 :where
 ;;                 [?user :age ?age]
 ;;                 [(< ?age ?max-age)]]]
-;;     (is (= '{:PredExpr
+;;     (is (= '{:Filter
 ;;              ["LT" [?age ?max-age]
 ;;               {:Join
-;;                [{:HasAttr [?user :age ?age]}
+;;                [{:MatchA [?user :age ?age]}
 ;;                 {:Input [?max-age]}]}]}
 ;;            (compile-query query)))))
 
@@ -435,38 +435,37 @@
     (is (= #{{:name "older?"
               :plan '{:Project
                       [[?t1 ?key]
-                       {:PredExpr
-                        ["LT"
-                         [?t1 ?t2]
+                       {:Filter
+                        [[?t1 ?t2]
+                         "LT"
                          {:Join
-                          [{:Join
-                            [{:Join
-                              [{:HasAttr [?op :assign/key ?key]}
-                               {:HasAttr [?op :assign/time ?t1]}
-                               [?op]]}
-                             {:HasAttr [?op2 :assign/key ?key]}
-                             [?key]]}
-                           {:HasAttr [?op2 :assign/time ?t2]}
-                           [?op2]]}]}]}}
+                          [[?op2]
+                           {:Join
+                            [[?key]
+                             {:Join
+                              [[?op]
+                               {:MatchA [?op :assign/key ?key]}
+                               {:MatchA [?op :assign/time ?t1]}]}
+                             {:MatchA [?op2 :assign/key ?key]}]}
+                           {:MatchA [?op2 :assign/time ?t2]}]}]}]}}
              {:name "lww"
               :plan '{:Project
                       [[?key ?val]
                        {:Antijoin
-                        [{:Join
-                          [{:Join
-                            [{:HasAttr [?op :assign/time ?t]}
-                             {:HasAttr [?op :assign/key ?key]}
-                             [?op]]}
-                           {:HasAttr [?op :assign/value ?val]}
-                           [?op]]}
-                         {:RuleExpr ["older?" [?t ?key]]}
-                         [?t ?key]]}
-                       [?key ?val]]}}}
+                        [[?t ?key]
+                         {:Join
+                          [[?op]
+                           {:Join
+                            [[?op]
+                             {:MatchA [?op :assign/time ?t]}
+                             {:MatchA [?op :assign/key ?key]}]}
+                           {:MatchA [?op :assign/value ?val]}]}
+                         {:RuleExpr [[?t ?key] "older?"]}]}]}}}
            (set (compile-rules rules))))))
 
 (deftest test-aggregations
   (testing "min"
     (let [query '[:find ?user (min ?age)
                   :where [?user :age ?age]]]
-      (is (= '{:Aggregate [[?age] {:HasAttr [?user :age ?age]} "MIN"]}
+      (is (= '{:Aggregate [[?age] {:MatchA [?user :age ?age]} "MIN"]}
              (compile-query query))))))

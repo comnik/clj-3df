@@ -182,15 +182,15 @@
                            (number? v)  {:Number v}
                            (boolean? v) {:Bool v}))]
       (case type
-        ::lookup  (let [[e a sym-v] pattern] {:Lookup [e a sym-v]})
-        ::entity  (let [[e sym-a sym-v] pattern] {:Entity [e sym-a sym-v]})
-        ::hasattr (let [[sym-e a sym-v] pattern] {:HasAttr [sym-e a sym-v]})
-        ::filter  (let [[sym-e a [_ v]] pattern] {:Filter [sym-e a (encode-value v)]})))))
+        ::lookup  (let [[e a sym-v] pattern] {:MatchEA [e a sym-v]})
+        ::entity  (let [[e sym-a sym-v] pattern] {:MatchE [e sym-a sym-v]})
+        ::hasattr (let [[sym-e a sym-v] pattern] {:MatchA [sym-e a sym-v]})
+        ::filter  (let [[sym-e a [_ v]] pattern] {:MatchAV [sym-e a (encode-value v)]})))))
 
 (defrecord RuleExpr [rule-name symbols]
   IBinding
   (bound-symbols [this] symbols)
-  (plan [this] {:RuleExpr [(str rule-name) (bound-symbols this)]}))
+  (plan [this] {:RuleExpr [(bound-symbols this) (str rule-name)]}))
 
 ;; Predicate epxressions, aggregations, and projections act on
 ;; existing bindings.
@@ -203,9 +203,9 @@
     (let [encode-predicate {'< "LT" '<= "LTE" '> "GT" '>= "GTE" '= "EQ" 'not= "NEQ"}
           symbols          (bound-symbols this)]
       (if (some? binding)
-        {:PredExpr [(encode-predicate predicate) args (plan binding)]}
+        {:Filter [args (encode-predicate predicate) (plan binding)]}
         (if debug?
-          {:PredExpr [(encode-predicate predicate) args :_]}
+          {:Filter [args (encode-predicate predicate) :_]}
           (throw (ex-info "All predicate inputs must be bound in a single relation." {:binding this})))))))
 
 (defrecord Aggregation [fn-symbol args binding]
@@ -381,7 +381,7 @@
       (reduce concat join-syms (map #(remove shared (bound-symbols %)) bindings))))
   (plan [this]
     (let [symbols (bound-symbols this)]
-      {:Join [(plan (first (.-bindings this))) (plan (second (.-bindings this))) (into [] (apply shared-symbols bindings))]})))
+      {:Join [(into [] (apply shared-symbols bindings)) (plan (first (.-bindings this))) (plan (second (.-bindings this)))]})))
 
 ;; @TODO antijoin more than two bindings
 (defrecord Antijoin [bindings]
@@ -391,7 +391,7 @@
           join-syms   (into [] shared)]
       (concat join-syms (remove shared (bound-symbols (first bindings))))))
   (plan [this]
-    {:Antijoin [(plan (first bindings)) (plan (second bindings)) (into [] (apply shared-symbols bindings))]}))
+    {:Antijoin [(into [] (apply shared-symbols bindings)) (plan (first bindings)) (plan (second bindings))]}))
 
 ;; Define conflicts and how to resolve them.
 

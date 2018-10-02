@@ -96,9 +96,9 @@
       ;; (register-query db name '[:find ?e1 ?e2 :where [?e1 :name ?n1] [?e2 :name ?n2]])
       (register-plan db name '{:Project
                                [[?e1 ?e2]
-                                {:Join [{:HasAttr [?e1 :name ?n1]}
-                                        {:HasAttr [?e2 :name ?n2]}
-                                        []]}]} [])
+                                {:Join [[]
+                                        {:MatchA [?e1 :name ?n1]}
+                                        {:MatchA [?e2 :name ?n2]}]}]} [])
       (transact db [[:db/add 1 :name "Dipper"]
                     [:db/add 2 :name "Mabel"]])
       (expect-> out (is (= [name [[[1 1] 1] [[1 2] 1] [[2 1] 1] [[2 2] 1]]] out)))

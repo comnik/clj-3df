@@ -214,9 +214,9 @@
     (if (some? binding) (bound-symbols binding) args))
   (plan [this]
     (if (some? binding)
-      {:Aggregate [(str/upper-case (name fn-symbol)) (plan binding) args]}
+      {:Aggregate [args (plan binding) (str/upper-case (name fn-symbol))]}
       (if debug?
-        {:Aggregate [(str/upper-case (name fn-symbol)) :_ args]}
+        {:Aggregate [args :_ (str/upper-case (name fn-symbol))]}
         (throw (ex-info "All aggregate arguments must be bound by a single relation." {:binding this}))))))
 
 (defrecord Projection [binding symbols]

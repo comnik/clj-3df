@@ -114,6 +114,14 @@
     {:name   name
      :source source}}])
 
+(defmulti create-input class)
+
+(defmethod create-input clojure.lang.Keyword [attr]
+  [{:CreateInput {:name (str attr)}}])
+
+(defmethod create-input clj_3df.core.DB [db]
+  (reduce-kv (fn [acc k v] (conj acc {:CreateInput {:name (str k)}})) [] (-schema db)))
+
 (defn- reverse-ref [attr]
   (if (reverse-ref? attr)
     (keyword (namespace attr) (subs (name attr) 1))

@@ -30,18 +30,18 @@
 (defprotocol IDB
   (-schema [db])
   (-attrs-by [db property])
-  (-attr->int [db attr])
-  (-int->attr [db i]))
+  (-attr->str [db attr])
+  (-str->attr [db str]))
 
-(defrecord DB [schema rschema attr->int int->attr next-tx]
+(defrecord DB [schema rschema attr->str str->attr next-tx]
   IDB
   (-schema [db] (.-schema db))
   (-attrs-by [db property] ((.-rschema db) property))
-  (-attr->int [db attr]
-    (if-let [[k v] (find attr->int attr)]
+  (-attr->str [db attr]
+    (if-let [[k v] (find attr->str attr)]
       v
       (throw (ex-info "Unknown attribute." {:attr attr}))))
-  (-int->attr [db i] (int->attr i)))
+  (-str->attr [db str] (str->attr str)))
 
 (defn- ^Boolean is-attr? [^DB db attr property] (contains? (-attrs-by db property) attr))
 (defn- ^Boolean multival? [^DB db attr] (is-attr? db attr :db.cardinality/many))
@@ -74,9 +74,9 @@
     {} schema))
 
 (defn create-db [schema]
-  (let [attr->int (zipmap (keys schema) (iterate (partial + 100) 100))
-        int->attr (set/map-invert attr->int)]
-    (->DB schema (rschema schema) attr->int int->attr 0)))
+  (let [attr->str (into {} (map (juxt identity str) (keys schema)))
+        str->attr (set/map-invert attr->str)]
+    (->DB schema (rschema schema) attr->str str->attr 0)))
 
 (defn interest [name]
   [{:Interest {:name name}}])
@@ -88,7 +88,7 @@
     (concat
      [{:Register
        {:publish [name]
-        :rules   (->> (conj rules top-rule) (encode/encode-rules (partial -attr->int db)))}}]
+        :rules   (->> (conj rules top-rule) (encode/encode-rules (partial -attr->str db)))}}]
      ;; @TODO split this off
      (interest name))))
 
@@ -101,11 +101,11 @@
          compiled-rules (if (empty? rules)
                           []
                           (compiler/compile-rules rules))]
-     (concat 
+     (concat
       [{:Register
         {:publish [name]
          :rules   (->> (conj compiled-rules top-rule)
-                       (encode/encode-rules (partial -attr->int db)))}}]
+                       (encode/encode-rules (partial -attr->str db)))}}]
       ;; @TODO split this off
       (interest name)))))
 
@@ -158,10 +158,10 @@
                                     :Transact
                                     :tx_data
                                     (into tx-data))
-                               
+
                                (sequential? datum)
                                (let [[op e a v] datum]
-                                 (conj tx-data [(op->diff op) e (-attr->int db a) (wrap-type a v)]))))
+                                 (conj tx-data [(op->diff op) e (-attr->str db a) (wrap-type a v)]))))
                            [] tx-data)]
      [{:Transact {:tx tx :tx_data tx-data}}])))
 

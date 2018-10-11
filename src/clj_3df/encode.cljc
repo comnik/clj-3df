@@ -8,30 +8,30 @@
 (def encode-symbol (memoize (fn [sym] #?(:clj  (clojure.lang.RT/nextID)
                                          :cljs (swap! nextID inc)))))
 
-(defn encode-plan [attr->int plan]
+(defn encode-plan [attr->str plan]
   (cond
     (symbol? plan)      (encode-symbol plan)
-    (keyword? plan)     (attr->int plan)
-    (sequential? plan)  (mapv (partial encode-plan attr->int) plan)
-    (associative? plan) (reduce-kv (fn [m k v] (assoc m k (encode-plan attr->int v))) {} plan)
+    (keyword? plan)     (attr->str plan)
+    (sequential? plan)  (mapv (partial encode-plan attr->str) plan)
+    (associative? plan) (reduce-kv (fn [m k v] (assoc m k (encode-plan attr->str v))) {} plan)
     (nil? plan)         (throw (ex-info "Plan contain's nils."
                                         {:causes #{:contains-nil}}))
     :else               plan))
 
-(defn encode-rule [attr->int rule]
+(defn encode-rule [attr->str rule]
   (let [{:keys [name plan]} rule]
     {:name name
-     :plan (encode-plan attr->int plan)}))
+     :plan (encode-plan attr->str plan)}))
 
-(defn encode-rules [attr->int rules]
-  (mapv (partial encode-rule attr->int) rules))
+(defn encode-rules [attr->str rules]
+  (mapv (partial encode-rule attr->str) rules))
 
 (comment
   (encode-plan {} [])
   (encode-plan {} '?name)
-  (encode-plan {:name 100} '{:MatchA [?e :name ?n]})
-  (encode-plan {:name 200} '{:Join [?n {:MatchA [?e1 :name ?n]} {:MatchA [?e2 :name ?n]}]})
-  (encode-plan {:name 300} '{:Join [?n {:MatchA [?e1 :name ?n]} {:MatchA [?e2 :name ?n]}]})
-  (encode-plan {:name 400} '{:Project
+  (encode-plan {:name ":name"} '{:MatchA [?e :name ?n]})
+  (encode-plan {:name ":name"} '{:Join [?n {:MatchA [?e1 :name ?n]} {:MatchA [?e2 :name ?n]}]})
+  (encode-plan {:name ":name"} '{:Join [?n {:MatchA [?e1 :name ?n]} {:MatchA [?e2 :name ?n]}]})
+  (encode-plan {:name ":name"} '{:Project
                              [[?e1 ?n ?e2] {:Join [?n {:MatchA [?e1 :name ?n]} {:MatchA [?e2 :name ?n]}]}]})
   )

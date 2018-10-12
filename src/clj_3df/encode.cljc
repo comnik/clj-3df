@@ -8,23 +8,23 @@
 (def encode-symbol (memoize (fn [sym] #?(:clj  (clojure.lang.RT/nextID)
                                          :cljs (swap! nextID inc)))))
 
-(defn encode-plan [attr->str plan]
+(defn encode-plan [attribute->id plan]
   (cond
     (symbol? plan)      (encode-symbol plan)
-    (keyword? plan)     (attr->str plan)
-    (sequential? plan)  (mapv (partial encode-plan attr->str) plan)
-    (associative? plan) (reduce-kv (fn [m k v] (assoc m k (encode-plan attr->str v))) {} plan)
+    (keyword? plan)     (attribute->id plan)
+    (sequential? plan)  (mapv (partial encode-plan attribute->id) plan)
+    (associative? plan) (reduce-kv (fn [m k v] (assoc m k (encode-plan attribute->id v))) {} plan)
     (nil? plan)         (throw (ex-info "Plan contain's nils."
                                         {:causes #{:contains-nil}}))
     :else               plan))
 
-(defn encode-rule [attr->str rule]
+(defn encode-rule [attribute->id rule]
   (let [{:keys [name plan]} rule]
     {:name name
-     :plan (encode-plan attr->str plan)}))
+     :plan (encode-plan attribute->id plan)}))
 
-(defn encode-rules [attr->str rules]
-  (mapv (partial encode-rule attr->str) rules))
+(defn encode-rules [attribute->id rules]
+  (mapv (partial encode-rule attribute->id) rules))
 
 (comment
   (encode-plan {} [])

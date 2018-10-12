@@ -30,18 +30,18 @@
 (defprotocol IDB
   (-schema [db])
   (-attrs-by [db property])
-  (-attr->str [db attr])
-  (-str->attr [db str]))
+  (-attribute->id [db attr])
+  (-id->attribute [db id]))
 
-(defrecord DB [schema rschema attr->str str->attr next-tx]
+(defrecord DB [schema rschema attribute->id id->attribute next-tx]
   IDB
   (-schema [db] (.-schema db))
   (-attrs-by [db property] ((.-rschema db) property))
-  (-attr->str [db attr]
-    (if-let [[k v] (find attr->str attr)]
+  (-attribute->id [db attr]
+    (if-let [[k v] (find attribute->id attr)]
       v
       (throw (ex-info "Unknown attribute." {:attr attr}))))
-  (-str->attr [db str] (str->attr str)))
+  (-id->attribute [db id] (id->attribute id)))
 
 (defn- ^Boolean is-attr? [^DB db attr property] (contains? (-attrs-by db property) attr))
 (defn- ^Boolean multival? [^DB db attr] (is-attr? db attr :db.cardinality/many))
@@ -74,9 +74,10 @@
     {} schema))
 
 (defn create-db [schema]
-  (let [attr->str (into {} (map (juxt identity str) (keys schema)))
-        str->attr (set/map-invert attr->str)]
-    (->DB schema (rschema schema) attr->str str->attr 0)))
+  (let [attribute->id (into {} (map (juxt identity str) (keys schema)))
+        id->attribute (set/map-invert attribute->id)]
+    (->DB schema (rschema schema) attribute->id id->attribute 0)))
+
 
 (defn interest [name]
   [{:Interest {:name name}}])
@@ -88,7 +89,7 @@
     (concat
      [{:Register
        {:publish [name]
-        :rules   (->> (conj rules top-rule) (encode/encode-rules (partial -attr->str db)))}}]
+        :rules   (->> (conj rules top-rule) (encode/encode-rules (partial -attribute->id db)))}}]
      ;; @TODO split this off
      (interest name))))
 
@@ -105,7 +106,7 @@
       [{:Register
         {:publish [name]
          :rules   (->> (conj compiled-rules top-rule)
-                       (encode/encode-rules (partial -attr->str db)))}}]
+                       (encode/encode-rules (partial -attribute->id db)))}}]
       ;; @TODO split this off
       (interest name)))))
 
@@ -169,7 +170,7 @@
 
                                (sequential? datum)
                                (let [[op e a v] datum]
-                                 (conj tx-data [(op->diff op) e (-attr->str db a) (wrap-type a v)]))))
+                                 (conj tx-data [(op->diff op) e (-attribute->id db a) (wrap-type a v)]))))
                            [] tx-data)]
      [{:Transact {:tx tx :tx_data tx-data}}])))
 

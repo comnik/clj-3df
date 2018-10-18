@@ -115,10 +115,13 @@
     {:name   name
      :source source}}])
 
-(defmulti create-input class)
+(defmulti create-input type)
 
-(defmethod create-input clojure.lang.Keyword [attr]
-  [{:CreateInput {:name (str attr)}}])
+#?(:cljs (defmethod create-input cljs.core/Keyword [attr]
+          [{:CreateInput {:name (str attr)}}]))
+
+#?(:clj  (defmethod create-input clojure.lang.Keyword [attr]
+          [{:CreateInput {:name (str attr)}}]))
 
 (defmethod create-input clj_3df.core.DB [db]
   (reduce-kv (fn [acc k v] (conj acc {:CreateInput {:name (str k)}})) [] (-schema db)))

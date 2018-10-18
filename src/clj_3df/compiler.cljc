@@ -32,6 +32,16 @@
 
 (def ^{:arglists '([pred] [pred coll])} separate (juxt filter remove))
 
+(defn remove-once [args coll]
+  (let [pred (into #{} args)]
+    ((fn inner [coll pred]
+       (lazy-seq
+        (when-let [[x & xs] (seq coll)]
+          (if (pred x)
+            (inner xs (disj pred x))
+            (cons x (inner xs pred))))))
+     coll pred)))
+
 ;; GRAMMAR
 
 (s/def ::query (s/keys :req-un [::find ::where]
@@ -214,7 +224,7 @@
     (if (some? binding) (bound-symbols binding) args))
   (plan [this]
     (if (some? binding)
-      {:Aggregate [(bound-symbols binding) (plan binding) (str/upper-case (name fn-symbol)) args]}
+      {:Aggregate [(bound-symbols binding) (plan binding) (str/upper-case (name fn-symbol)) (remove-once args (bound-symbols binding))]}
       (if debug?
         {:Aggregate [args :_ (str/upper-case (name fn-symbol))]}
         (throw (ex-info "All aggregate arguments must be bound by a single relation." {:binding this}))))))

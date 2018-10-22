@@ -471,11 +471,22 @@
              (compile-query query))))))
 
 (deftest test-functions
-  (let [query '[:find ?e ?t
-                :where
-                [?e :event/time ?t] [(interval ?t) ?t]]]
-    (is (= '{:Transform
-             [[?t]
-              "interval"
-              {:MatchA [?e :event/time ?t]}]}
-           (compile-query query)))))
+  (testing "fn"
+    (let [query '[:find ?e ?t
+                  :where
+                  [?e :event/time ?t] [(interval ?t) ?t]]]
+      (is (= '{:Transform
+               [[?t]
+                {:MatchA [?e :event/time ?t]}
+                "INTERVAL"]}
+             (compile-query query)))))
+  (testing "fn-pred"
+    (let [query '[:find ?e ?t
+                  :in ?cutoff
+                  :where
+                  [?e :event/time ?t][(> ?t ?cutoff)][(interval ?t) ?t]]]
+      (is (= '{:Transform
+               [[?t]
+                {:Filter [[?t ?cutoff] "GT" {:MatchA [?e :event/time ?t]}]}
+                "INTERVAL"]}
+             (compile-query query))))))

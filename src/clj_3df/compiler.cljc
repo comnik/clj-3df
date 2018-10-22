@@ -210,16 +210,16 @@
           {:Filter [args (encode-predicate predicate) :_]}
           (throw (ex-info "All predicate inputs must be bound in a single relation." {:binding this})))))))
 
-(defrecord Aggregation [fn-symbol args binding]
+(defrecord Aggregation [fn-symbol args key-symbols binding symbols]
   IBinding
-  (bound-symbols [this]
-    (if (some? binding) (bound-symbols binding) args))
+  (bound-symbols [this] symbols)
   (plan [this]
-    (if (some? binding)
-      {:Aggregate [(bound-symbols binding) (plan binding) (str/upper-case (name fn-symbol)) (remove (set args) (bound-symbols binding))]}
-      (if debug?
-        {:Aggregate [args :_ (str/upper-case (name fn-symbol))]}
-        (throw (ex-info "All aggregate arguments must be bound by a single relation." {:binding this}))))))
+    (let [symbols (bound-symbols this)]
+      (if (binds-all? binding symbols)
+        {:Aggregate [symbols (plan binding) (str/upper-case (name fn-symbol)) key-symbols]}
+        (if debug?
+          {:Aggregate [args :_ (str/upper-case (name fn-symbol)) symbols]}
+          (throw (ex-info "Aggregation on unbound symbols." {:binding (debug-plan this)})))))))
 
 (defrecord Projection [binding symbols]
   IBinding
@@ -373,12 +373,18 @@
     :var       []
     :aggregate [pattern]))
 
-(comment
-  (-> '[:find ?e ?n :where [?e :name ?n]] parse-query :find extract-find-symbols)
+(defn- extract-key-symbols [[typ pattern]]
+  (case typ
+    ::find-rel (mapcat extract-key-symbols pattern)
+    :var       [pattern]
+    :aggregate []))
 
-  (-> '[:find ?e (count ?n) :where [?e :name ?n]] parse-query :find extract-find-symbols)
+(comment
+  (-> '[:find ?e ?n :where [?e :name ?n]] parse-query  extract-find-symbols)
 
   (-> '[:find ?e (count ?n) :where [?e :name ?n]] parse-query :find extract-aggregations)
+
+  (-> '[:find ?e (count ?n) (count ?a) :where [?e :name ?n]] parse-query :find extract-key-symbols)
   )
 
 ;; UNIFICATION
@@ -550,7 +556,7 @@
         aggregation (->> (:find ir)
                          extract-aggregations
                          (reduce (fn [unified {:keys [aggregation-fn vars]}]
-                                   (->Aggregation aggregation-fn vars unified)) unified))
+                                   (->Aggregation aggregation-fn vars (extract-key-symbols (:find ir)) unified (extract-find-symbols (:find ir)))) unified))
         projection  (->> (:find ir) extract-find-symbols (->Projection aggregation))]
     (plan projection)))
 
@@ -561,9 +567,9 @@
 
   (compile-query '[:find ?n ?e :where [?e :name ?n]])
 
-  (compile-query '[:find ?e :where [?e :name "Test"]])
+  (compile-query '[:find (count ?e) :where [?e :name "Dipper"]])
 
-  (compile-query '[:find ?e ?n ?a :where [?e :age ?a] [?e :name ?n]])
+  (compile-query '[:find ?e ?a (count ?n) :where [?e :age ?a] [?e :name ?n]])
 
   (compile-query '[:find ?e ?a
                    :where

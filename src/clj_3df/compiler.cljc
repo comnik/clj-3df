@@ -240,10 +240,10 @@
   (bound-symbols [this]
     (if (some? binding) (bound-symbols binding) args))
   (plan [this]
-    (let [encode-fn name
+    (let [encode-fn (comp str/upper-case name)
           symbols   (bound-symbols this)]
       (if (some? binding)
-        {:Transform [args (encode-fn fn) (plan binding)]}
+        {:Transform [args (plan binding) (encode-fn fn)]}
         (if debug?
           {:Transform [args (encode-fn fn) :_]}
           (throw (ex-info "All function inputs must be bound in a single relation." {:binding this})))))))
@@ -464,6 +464,9 @@
   (unify-with [(->Relation ::hasattr '[?e :age ?age] '[?e ?age])]
               (->Predicate '> '[?age] nil))
 
+  (unify-with [(->Predicate '> '[?t ?cutoff] (->Relation ::hasattr '[?e :time ?t] '[?e ?t]))]
+              (->FnExpr :interval '[?t] '[?t] nil))
+
   (unify-with [(->Relation ::hasattr '[?e :age ?age] '[?e ?age])]
               (->Negation [(->Relation ::filter '[?e :age [:number 18]] '[?e])] []))
   )
@@ -502,12 +505,16 @@
 (defmethod unify [Projection Predicate] [proj pred] (update proj :binding unify pred))
 ;; @TODO compose predicate functions
 (defmethod unify [Predicate Predicate] [p1 p2] (update p1 :binding unify p2))
+(defmethod unify [Predicate FnExpr] [pred f] (unify f pred))
 
 (defmethod unify [::binding FnExpr] [b1 b2] (unify b2 b1))
 (defmethod unify [FnExpr ::binding] [f binding] (update f :binding unify binding))
 (defmethod unify [FnExpr Projection] [b1 b2] (unify b2 b1))
 (defmethod unify [Projection FnExpr] [proj f] (update proj :binding unify f))
 (defmethod unify [FnExpr FnExpr] [p1 p2] (update p1 :binding unify p2))
+(defmethod unify [FnExpr Predicate] [f pred] (update f :binding unify pred))
+
+
 
 (defn unify-context
   "Unifies a full context, which can contain both conjunctions and

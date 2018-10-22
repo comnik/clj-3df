@@ -77,7 +77,7 @@
                      :string string?
                      :bool   boolean?))
 (s/def ::predicate '#{<= < > >= = not=})
-(s/def ::aggregation-fn '#{min max count})
+(s/def ::aggregation-fn '#{min max count median sum avg variance})
 (s/def ::function '#{interval})
 (s/def ::fn-arg (s/or :var ::variable :const ::value))
 

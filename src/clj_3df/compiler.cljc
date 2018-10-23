@@ -560,10 +560,13 @@
 (defn compile-query [query]
   (let [ir          (parse-query query)
         unified     (->> (:where ir) (reduce normalize []) unify-context extract-binding)
-        aggregation (->> (:find ir)
-                         extract-aggregations
-                         (reduce (fn [unified {:keys [aggregation-fn vars]}]
-                                   (->Aggregation aggregation-fn vars (extract-key-symbols (:find ir)) unified (extract-find-symbols (:find ir)))) unified))
+        find-syms   (extract-find-symbols (:find ir))
+        key-syms    (extract-key-symbols (:find ir))
+        aggregation (if-let [[agg & remaining :as all] (-> (:find ir) extract-aggregations seq)]
+                      (if remaining
+                        (throw (ex-info "Only single aggregations are supported" {:call all}))
+                        (->Aggregation (:aggregation-fn agg) (:vars agg) key-syms unified find-syms))
+                      unified)
         projection  (->> (:find ir) extract-find-symbols (->Projection aggregation))]
     (plan projection)))
 

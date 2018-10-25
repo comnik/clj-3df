@@ -290,7 +290,7 @@
                 {:Filter
                  [[?a1 ?a2]
                   "LT"
-                  {:Join [[?user] {:MatchA [?user :age ?a1]} {:MatchA [?user :age ?a2]}]}]}]}
+                  {:Join [[?user] {:MatchA [?user :age ?a1]} {:MatchA [?user :age ?a2]}]} {}]}]}
              (compile-query query)))))
 
   (testing "predicate union"
@@ -301,8 +301,8 @@
                       [(< ?age 18)])]]
       (is (= '{:Union
                [[?user ?age]
-                {:Filter [[?age] "GTE" {:MatchA [?user :age ?age]}]}
-                {:Filter [[?age] "LT" {:MatchA [?user :age ?age]}]}]}
+                [{:Filter [[?age] "GTE" {:MatchA [?user :age ?age]} {1 {:Number 21}}]}
+                 {:Filter [[?age] "LT" {:MatchA [?user :age ?age]} {1 {:Number 18}}]}]]}
              (compile-query query)))))
 
   (testing "nested predicates"
@@ -327,7 +327,7 @@
                          {:MatchA [?parent :child ?child1]}
                          {:MatchA [?child1 :timestamp ?t1]}]}
                        {:MatchA [?parent :child ?child2]}]}
-                     {:MatchA [?child2 :timestamp ?t2]}]}]}
+                     {:MatchA [?child2 :timestamp ?t2]}]} {}]}
                  {:Filter
                   [[?parent ?child1]
                    "EQ"
@@ -343,7 +343,7 @@
                            {:MatchA [?parent :child ?child1]}
                            {:MatchA [?child1 :timestamp ?t1]}]}
                          {:MatchA [?parent :child ?child2]}]}
-                       {:MatchA [?child2 :timestamp ?t2]}]}]}]}]]}
+                       {:MatchA [?child2 :timestamp ?t2]}]} {}]} {}]}]]}
              (compile-query query)))))
 
   #_(testing "nested predicates w/ cartesian"
@@ -358,7 +358,7 @@
                  [[?child1 ?child2]
                   {:Filter [[?ctr1 ?ctr2] "GT"
                               {:Join [{:MatchA [?child1 :id/ctr ?ctr1]}
-                                      {:MatchA [?child1 :id/ctr ?ctr1]}]}]}
+                                      {:MatchA [?child1 :id/ctr ?ctr1]}]} {}]}
                   {:Filter [[?age] "LT" {:MatchA [?user :age ?age]}]}]}
              (compile-query query)))))
 
@@ -385,7 +385,7 @@
                      {:Join
                       [[?child1]
                        {:MatchA [?child1 :id/ctr ?ctr1]}
-                       {:MatchA [?child1 :id/node ?n1]}]}]}]}
+                       {:MatchA [?child1 :id/node ?n1]}]}]} {}]}
                  {:Filter
                   [[?ctr1 ?ctr2]
                    "EQ"
@@ -404,7 +404,7 @@
                        {:Join
                         [[?child2]
                          {:MatchA [?child2 :id/ctr ?ctr2]}
-                         {:MatchA [?child2 :id/node ?n2]}]}]}]}]}]]}
+                         {:MatchA [?child2 :id/node ?n2]}]}]} {}]} {}]}]]}
              (compile-query query))))))
 
 ;; (deftest test-inputs
@@ -447,7 +447,7 @@
                                {:MatchA [?op :assign/key ?key]}
                                {:MatchA [?op :assign/time ?t1]}]}
                              {:MatchA [?op2 :assign/key ?key]}]}
-                           {:MatchA [?op2 :assign/time ?t2]}]}]}]}}
+                           {:MatchA [?op2 :assign/time ?t2]}]} {}]}]}}
              {:name "lww"
               :plan '{:Project
                       [[?key ?val]
@@ -487,6 +487,6 @@
                   [?e :event/time ?t][(> ?t ?cutoff)][(interval ?t) ?t]]]
       (is (= '{:Transform
                [[?t]
-                {:Filter [[?t ?cutoff] "GT" {:MatchA [?e :event/time ?t]}]}
+                {:Filter [[?t ?cutoff] "GT" {:MatchA [?e :event/time ?t]} {}]}
                 "INTERVAL"]}
              (compile-query query))))))

@@ -32,6 +32,12 @@
 
 (def ^{:arglists '([pred] [pred coll])} separate (juxt filter remove))
 
+(defn- encode-value [v]
+  (cond
+    (string? v)  {:String v}
+    (number? v)  {:Number v}
+    (boolean? v) {:Bool v}))
+
 ;; GRAMMAR
 
 (s/def ::query (s/keys :req-un [::find ::where]
@@ -178,16 +184,11 @@
   IBinding
   (bound-symbols [rel] (.-symbols rel))
   (plan [{:keys [type pattern]}]
-    (let [encode-value (fn [v]
-                         (cond
-                           (string? v)  {:String v}
-                           (number? v)  {:Number v}
-                           (boolean? v) {:Bool v}))]
-      (case type
-        ::lookup  (let [[e a sym-v] pattern] {:MatchEA [e a sym-v]})
-        ::entity  (let [[e sym-a sym-v] pattern] {:MatchE [e sym-a sym-v]})
-        ::hasattr (let [[sym-e a sym-v] pattern] {:MatchA [sym-e a sym-v]})
-        ::filter  (let [[sym-e a [_ v]] pattern] {:MatchAV [sym-e a (encode-value v)]})))))
+    (case type
+      ::lookup  (let [[e a sym-v] pattern] {:MatchEA [e a sym-v]})
+      ::entity  (let [[e sym-a sym-v] pattern] {:MatchE [e sym-a sym-v]})
+      ::hasattr (let [[sym-e a sym-v] pattern] {:MatchA [sym-e a sym-v]})
+      ::filter  (let [[sym-e a [_ v]] pattern] {:MatchAV [sym-e a (encode-value v)]}))))
 
 (defrecord RuleExpr [rule-name symbols]
   IBinding
@@ -197,7 +198,7 @@
 ;; Predicate epxressions, aggregations, and projections act on
 ;; existing bindings.
 
-(defrecord Predicate [predicate args binding]
+(defrecord Predicate [predicate args binding offset->const]
   IBinding
   (bound-symbols [this]
     (if (some? binding) (bound-symbols binding) args))
@@ -205,9 +206,9 @@
     (let [encode-predicate {'< "LT" '<= "LTE" '> "GT" '>= "GTE" '= "EQ" 'not= "NEQ"}
           symbols          (bound-symbols this)]
       (if (some? binding)
-        {:Filter [args (encode-predicate predicate) (plan binding)]}
+        {:Filter [args (encode-predicate predicate) (plan binding) offset->const]}
         (if debug?
-          {:Filter [args (encode-predicate predicate) :_]}
+          {:Filter [args (encode-predicate predicate) :_ offset->const]}
           (throw (ex-info "All predicate inputs must be bound in a single relation." {:binding this})))))))
 
 (defrecord Aggregation [fn-symbol args key-symbols binding symbols]
@@ -254,19 +255,17 @@
 ;; creating the right binding representation and transforming
 ;; constants into input bindings.
 
-(defn- const->in
-  "Transforms any constant arguments into inputs."
+(defn- normalize-arguments
+  "Extracts constant arguments into a map {offset const}."
   [args]
   (->> args
+       (map-indexed vector)
        (reduce
-        (fn [state [typ arg]]
+        (fn [state [offset [typ arg]]]
           (case typ
             :var   (update state :normalized-args conj arg)
-            :const (let [in (gensym "?in_")]
-                     (-> state
-                         (update :inputs conj (->Input in [:const arg]))
-                         (update :normalized-args conj in)))))
-        {:inputs [] :normalized-args []})))
+            :const (update state :offset->const assoc offset (encode-value (second arg)))))
+        {:offset->const {} :normalized-args []})))
 
 (defmulti normalize (fn [ctx clause] (first clause)))
 
@@ -288,11 +287,10 @@
   (conj ctx (->Negation (reduce normalize [] clauses) symbols)))
 
 (defmethod normalize ::pred-expr [ctx [_ predicate-expr]]
-  (let [[{:keys [predicate fn-args]}]    predicate-expr
-        {:keys [inputs normalized-args]} (const->in fn-args)]
+  (let [[{:keys [predicate fn-args]}] predicate-expr
+         {:keys [offset->const normalized-args]} (normalize-arguments fn-args)]
     (-> ctx
-        (into inputs)
-        (conj (->Predicate predicate normalized-args nil)))))
+        (conj (->Predicate predicate normalized-args nil offset->const)))))
 
 (defmethod normalize ::lookup [ctx [_ [e a sym-v :as pattern]]]
   (conj ctx (->Relation ::lookup pattern [sym-v])))
@@ -308,16 +306,16 @@
 
 (defmethod normalize ::rule-expr [ctx [_ rule-expr]]
   (let [{:keys [rule-name fn-args]}      rule-expr
-        {:keys [inputs normalized-args]} (const->in fn-args)]
+        {:keys [offset->const normalized-args]} (normalize-arguments fn-args)]
+    (when (seq offset->const)
+      (throw (ex-info "Constants in rule-expr are not supported yet" {})))
     (-> ctx
-        (into inputs)
         (conj (->RuleExpr rule-name normalized-args)))))
 
 (defmethod normalize ::fn-expr [ctx [_ fn-expr]]
   (let [[{:keys [fn fn-args]} result-sym] fn-expr
-        {:keys [inputs normalized-args]}  (const->in fn-args)]
+         {:keys [offset->const normalized-args]}  (normalize-arguments fn-args)]
     (-> ctx
-        (into inputs)
         (conj (->FnExpr fn normalized-args result-sym nil)))))
 
 (comment
@@ -462,9 +460,9 @@
               (->Relation ::hasattr '[?e :age ?age] '[?e ?age]))
 
   (unify-with [(->Relation ::hasattr '[?e :age ?age] '[?e ?age])]
-              (->Predicate '> '[?age] nil))
+              (->Predicate '> '[?age] nil {}))
 
-  (unify-with [(->Predicate '> '[?t ?cutoff] (->Relation ::hasattr '[?e :time ?t] '[?e ?t]))]
+  (unify-with [(->Predicate '> '[?t ?cutoff] (->Relation ::hasattr '[?e :time ?t] '[?e ?t]) {})]
               (->FnExpr :interval '[?t] '[?t] nil))
 
   (unify-with [(->Relation ::hasattr '[?e :age ?age] '[?e ?age])]
@@ -549,7 +547,7 @@
                                      [(->Relation ::filter '[?e :age [:number 22]] '[?e])]] [])])
 
   (unify-context [] [(->Relation ::hasattr '[?e :age ?age] '[?e ?age])
-                     (->Predicate '> '[?age] nil)])
+                     (->Predicate '> '[?age] nil {})])
 
   (unify-context [] [(->Relation ::hasattr '[?e :age ?age] '[?e ?age])
                      (->Negation [(->Relation ::filter '[?e :age [:number 18]] '[?e])] [])])

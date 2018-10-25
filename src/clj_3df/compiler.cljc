@@ -560,13 +560,14 @@
         unified     (->> (:where ir) (reduce normalize []) unify-context extract-binding)
         find-syms   (extract-find-symbols (:find ir))
         key-syms    (extract-key-symbols (:find ir))
+        projection  (->Projection unified find-syms)
         aggregation (if-let [[agg & remaining :as all] (-> (:find ir) extract-aggregations seq)]
                       (if remaining
-                        (throw (ex-info "Only single aggregations are supported" {:call all}))
-                        (->Aggregation (:aggregation-fn agg) (:vars agg) key-syms unified find-syms))
-                      unified)
-        projection  (->> (:find ir) extract-find-symbols (->Projection aggregation))]
-    (plan projection)))
+                        (throw (ex-info "Only single aggregations in the :find clause are supported for now" {}))
+                        (->Aggregation (:aggregation-fn agg) (:vars agg) key-syms projection find-syms))
+                      projection)
+        ]
+    (plan aggregation)))
 
 (comment
   (compile-query '[:find ?e ?n :where [?e :name ?n]])

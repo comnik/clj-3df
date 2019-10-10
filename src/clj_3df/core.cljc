@@ -232,7 +232,7 @@
   "Unregisters a callback that was previously registered via
   `listen-query!`."
   [^Connection conn query key]
-  (swap! (.-query-listeners conn) update-in query dissoc key))
+  (swap! (.-query-listeners conn) update query dissoc key))
 
 #?(:clj (defn create-conn!
           [url]
